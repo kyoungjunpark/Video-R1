@@ -50,7 +50,6 @@ from qwen_vl_utils import process_vision_info
 
 import copy
 
-
 if is_peft_available():
     from peft import PeftConfig, get_peft_model
 
@@ -147,20 +146,21 @@ class Qwen2VLGRPOTrainer(Trainer):
     """
 
     def __init__(
-        self,
-        model: Union[str, PreTrainedModel],
-        reward_funcs: Union[RewardFunc, list[RewardFunc]],
-        args: GRPOConfig = None,
-        train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
-        eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
-        processing_class: Optional[PreTrainedTokenizerBase] = None,
-        reward_processing_classes: Optional[Union[PreTrainedTokenizerBase, list[PreTrainedTokenizerBase]]] = None,
-        callbacks: Optional[list[TrainerCallback]] = None,
-        optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
-        peft_config: Optional["PeftConfig"] = None,
-        max_pixels: Optional[int] = 12845056,
-        min_pixels: Optional[int] = 3136,
-        attn_implementation: str = "flash_attention_2",
+            self,
+            model: Union[str, PreTrainedModel],
+            reward_funcs: Union[RewardFunc, list[RewardFunc]],
+            args: GRPOConfig = None,
+            train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
+            eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
+            processing_class: Optional[PreTrainedTokenizerBase] = None,
+            reward_processing_classes: Optional[Union[PreTrainedTokenizerBase, list[PreTrainedTokenizerBase]]] = None,
+            callbacks: Optional[list[TrainerCallback]] = None,
+            optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (
+            None, None),
+            peft_config: Optional["PeftConfig"] = None,
+            max_pixels: Optional[int] = 12845056,
+            min_pixels: Optional[int] = 3136,
+            attn_implementation: str = "flash_attention_2",
     ):
         # Args
         if args is None:
@@ -282,8 +282,8 @@ class Qwen2VLGRPOTrainer(Trainer):
         self.num_generations = args.num_generations  # = G in the GRPO paper
         self.generation_config = GenerationConfig(
             max_new_tokens=self.max_completion_length,
-            do_sample=True,  
-            temperature=1, # HACK
+            do_sample=True,
+            temperature=1,  # HACK
             num_return_sequences=self.num_generations,
             pad_token_id=pad_token_id,
         )
@@ -334,7 +334,6 @@ class Qwen2VLGRPOTrainer(Trainer):
         if self._signature_columns is None:
             self._signature_columns = ["prompt"]
 
-
     # Get the per-token log probabilities for the completions for the model and the reference model
     def _get_per_token_logps(self, model, input_ids, **kwargs):
         # logits = model(input_ids, attention_mask=attention_mask, pixel_values=pixel_values, image_grid_thw=image_grid_thw).logits  # (B, L, V)
@@ -349,7 +348,6 @@ class Qwen2VLGRPOTrainer(Trainer):
             per_token_logps.append(token_log_prob)
         return torch.stack(per_token_logps)
 
-
     # Trainer "prepares" the inputs before calling `compute_loss`. It converts to tensor and move to device.
     # Since we preprocess the data in `compute_loss`, we need to override this method to skip this step.
     def _prepare_inputs(self, inputs: dict[str, Union[torch.Tensor, Any]]) -> dict[str, Union[torch.Tensor, Any]]:
@@ -358,8 +356,6 @@ class Qwen2VLGRPOTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
-    
-        
 
         prompts = [x["prompt"] for x in inputs]
         prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs]
@@ -369,18 +365,15 @@ class Qwen2VLGRPOTrainer(Trainer):
             video_inputs = []
             for (cur_idx, cur_input) in enumerate(inputs):
                 copy_input = cur_input.copy()
-                
-                copy_input['prompt'][0]['content'][0]['video'] = os.getcwd() + "/data" + inputs[cur_idx]["video_filename"][1:]
-                
+
+                copy_input['prompt'][0]['content'][0]['video'] = os.getcwd() + "/data" + inputs[cur_idx][
+                                                                                             "video_filename"][1:]
+
                 video_inputs.append(process_vision_info(copy_input["prompt"])[1])
-                
+
                 # import pdb
                 # pdb.set_trace()
-                
-                
-                
-        
-        
+
         prompt_inputs = self.processing_class(
             text=prompts_text,
             images=images if "image" in inputs[0] else None,
@@ -390,21 +383,19 @@ class Qwen2VLGRPOTrainer(Trainer):
             padding_side="left",
             add_special_tokens=False,
         )
-        
+
         # import pdb
         # pdb.set_trace()
-        
-        
+
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
 
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
         # pixel_values = prompt_inputs["pixel_values"]
         # image_grid_thw = prompt_inputs["image_grid_thw"]
 
-        
         if self.max_prompt_length is not None:
-            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+            prompt_ids = prompt_ids[:, -self.max_prompt_length:]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length:]
 
         # Generate completions
         # with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
@@ -414,8 +405,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         #     prompt_ids = prompt_completion_ids[:, :prompt_length]
         #     completion_ids = prompt_completion_ids[:, prompt_length:]
         #     prompt_mask = prompt_mask.repeat_interleave(self.num_generations, dim=0)
-        
-        
+
         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
             # prompt_completion_ids = unwrapped_model.generate(**prompt_inputs, generation_config=self.generation_config)
 
@@ -465,9 +455,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         # attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B*G, P+C)
         # pixel_values = prompt_inputs["pixel_values"].repeat(self.num_generations, 1)
         # image_grid_thw = prompt_inputs["image_grid_thw"].repeat_interleave(self.num_generations, dim=0)
-        
 
-        
         prompt_inputs.pop("input_ids")
         prompt_inputs.pop("attention_mask")
         # Okay I am assuming that the inputs are Qwen2VL processor
@@ -476,36 +464,34 @@ class Qwen2VLGRPOTrainer(Trainer):
             prompt_inputs["pixel_values"] = prompt_inputs["pixel_values"].repeat(len(prompt_completion_ids), 1)
             prompt_inputs["image_grid_thw"] = prompt_inputs["image_grid_thw"].repeat(len(prompt_completion_ids), 1)
         # import pdb; pdb.set_trace()
-        
+
         if "video_filename" in inputs[0]:
-            prompt_inputs["pixel_values_videos"] = prompt_inputs["pixel_values_videos"].repeat(len(prompt_completion_ids), 1)
+            prompt_inputs["pixel_values_videos"] = prompt_inputs["pixel_values_videos"].repeat(
+                len(prompt_completion_ids), 1)
             prompt_inputs["video_grid_thw"] = prompt_inputs["video_grid_thw"].repeat(len(prompt_completion_ids), 1)
-        
-        
+
         # per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, attention_mask, pixel_values, image_grid_thw)
         per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
         # Get rid of the prompt (-1 because of the shift done in get_per_token_logps)
-        per_token_logps = per_token_logps[:, prompt_length - 1 :]
-        
-
+        per_token_logps = per_token_logps[:, prompt_length - 1:]
 
         with torch.inference_mode():
             if self.ref_model is not None:
-                #ref_per_token_logps = self._get_per_token_logps(self.ref_model, prompt_completion_ids, attention_mask, pixel_values, image_grid_thw)
+                # ref_per_token_logps = self._get_per_token_logps(self.ref_model, prompt_completion_ids, attention_mask, pixel_values, image_grid_thw)
                 # ref_per_token_logps = self._get_per_token_logps(self.ref_model, prompt_completion_ids, **prompt_inputs)
                 ref_per_token_logps = self._get_per_token_logps(self.ref_model, prompt_completion_ids)
             else:
                 with self.accelerator.unwrap_model(model).disable_adapter():
-                    #ref_per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, attention_mask, pixel_values, image_grid_thw)
+                    # ref_per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, attention_mask, pixel_values, image_grid_thw)
                     ref_per_token_logps = self._get_per_token_logps(model, prompt_completion_ids, **prompt_inputs)
-        ref_per_token_logps = ref_per_token_logps[:, prompt_length - 1 :]
+        ref_per_token_logps = ref_per_token_logps[:, prompt_length - 1:]
 
         # Compute the KL divergence between the model and the reference model
-        
+
         per_token_kl = torch.exp(ref_per_token_logps - per_token_logps) - (ref_per_token_logps - per_token_logps) - 1
-        
-        per_token_kl  = torch.clamp(per_token_kl, min=-100, max=100)
-        
+
+        per_token_kl = torch.clamp(per_token_kl, min=-100, max=100)
+
         # import pdb
         # pdb.set_trace()
 
@@ -519,7 +505,7 @@ class Qwen2VLGRPOTrainer(Trainer):
 
         rewards_per_func = torch.zeros(len(prompts), len(self.reward_funcs), device=device)
         for i, (reward_func, reward_processing_class) in enumerate(
-            zip(self.reward_funcs, self.reward_processing_classes)
+                zip(self.reward_funcs, self.reward_processing_classes)
         ):
             if isinstance(reward_func, PreTrainedModel):
                 if is_conversational(inputs[0]):
@@ -559,7 +545,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         per_token_loss = torch.exp(per_token_logps - per_token_logps.detach()) * advantages.unsqueeze(1)
         per_token_loss = -(per_token_loss - self.beta * per_token_kl)
         loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-        
+
         # import pdb
         # pdb.set_trace()
 
@@ -594,10 +580,10 @@ class Qwen2VLGRPOTrainer(Trainer):
         self._metrics.clear()
 
     def create_model_card(
-        self,
-        model_name: Optional[str] = None,
-        dataset_name: Optional[str] = None,
-        tags: Union[str, list[str], None] = None,
+            self,
+            model_name: Optional[str] = None,
+            dataset_name: Optional[str] = None,
+            tags: Union[str, list[str], None] = None,
     ):
         """
         Creates a draft of a model card using the information available to the `Trainer`.

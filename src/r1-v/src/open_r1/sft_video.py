@@ -58,9 +58,11 @@ import wandb
 
 from typing import List, Dict, Any
 
+
 def get_current_device():
     """Get the current device. For GPU we return the local process index to enable multiple GPU training."""
     return Accelerator().local_process_index if torch.cuda.is_available() else "cpu"
+
 
 def download_video(url: str, folder: str = '/tmp/videos/') -> str:
     """Download video if not already present locally."""
@@ -81,14 +83,12 @@ def download_video(url: str, folder: str = '/tmp/videos/') -> str:
     except requests.RequestException as e:
         raise Exception(f"Failed to download video: {e}")
 
+
 def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     """Prepare dataset example for training."""
 
-    
-
     system_message = "You are a helpful assistant"
-    
-    
+
     QUESTION_TEMPLATE = (
         "{Question}\n"
         "Please think about this question as if you were a human pondering deeply. "
@@ -105,15 +105,12 @@ def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
         "regression": " Please provide the numerical value (e.g., 42 or 3.14) within the <answer> </answer> tags."
     }
 
-
-    
     if example["problem_type"] == 'multiple choice':
         question = example['problem'] + "Options:\n"
         for op in example["options"]:
             question += op + "\n"
     else:
         question = example['problem']
-
 
     messages = [
         {
@@ -125,7 +122,7 @@ def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
             "content": [
                 {
                     "type": example['data_type'],
-                    example['data_type']: os.getcwd() + "/Video-R1-data" + example['path'][1:]
+                    example['data_type']: example['path']
                     # "max_pixels": 360*420,
                     # "fps": 1.0
                 },
@@ -140,9 +137,9 @@ def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
             "content": [{"type": "text", "text": example['process'] + "\n" + example['solution']}]
         }
     ]
-    
 
     return {"messages": messages}
+
 
 def collate_fn(examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     """Collate batch of examples for training."""
@@ -154,8 +151,9 @@ def collate_fn(examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         try:
 
             texts.append(processor.apply_chat_template(example["messages"], tokenize=False))
-            image_inputs, video_inputs, video_kwargs = process_vision_info(example["messages"], return_video_kwargs=True)
-            
+            image_inputs, video_inputs, video_kwargs = process_vision_info(example["messages"],
+                                                                           return_video_kwargs=True)
+
         except Exception as e:
             raise ValueError(f"Failed to process example {i}: {e}")
 
@@ -181,11 +179,12 @@ def collate_fn(examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     inputs["labels"] = labels
     return inputs
 
+
 if __name__ == "__main__":
     # Parse arguments
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
     script_args, training_args, model_config = parser.parse_args_and_config()
-    
+
     # Configure training args
     training_args.gradient_checkpointing_kwargs = dict(use_reentrant=False)
     training_args.remove_unused_columns = False
@@ -193,7 +192,7 @@ if __name__ == "__main__":
 
     # Load dataset
     if script_args.dataset_name.endswith('.json') or script_args.dataset_name.endswith('.jsonl'):
-        dataset =  DatasetDict({"train": Dataset.from_json(script_args.dataset_name)})
+        dataset = DatasetDict({"train": Dataset.from_json(script_args.dataset_name)})
     else:
         # Load the dataset
         dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
@@ -221,8 +220,7 @@ if __name__ == "__main__":
         device_map=get_kbit_device_map(),
         # quantization_config=bnb_config,
     )
-    
-    
+
     if "Qwen2-VL" in model_config.model_name_or_path:
         model = Qwen2VLForConditionalGeneration.from_pretrained(model_config.model_name_or_path, **model_kwargs)
     elif "Qwen2.5-VL" in model_config.model_name_or_path:

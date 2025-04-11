@@ -56,15 +56,17 @@ class GRPOScriptArguments(ScriptArguments):
         default=True,
         metadata={"help": "whether using temporal GRPO"},
     )
+    quality_step: Optional[bool] = field(
+        default=True,
+        metadata={"help": "whether using quality steps GRPO"},
+    )
     len_control: Optional[bool] = field(
         default=True,
         metadata={"help": "whether using length reward"},
     )
 
 
-
 def accuracy_reward(completions, solution, **kwargs):
-    
     def extract_answer(text):
         pattern = r'<answer>\s*(.*?)\s*</answer>'
         match = re.search(pattern, text, re.DOTALL)
@@ -85,40 +87,69 @@ def accuracy_reward(completions, solution, **kwargs):
         hyp_words = hypothesis.split()
         m = len(ref_words)
         n = len(hyp_words)
-        d = [[0]*(n+1) for _ in range(m+1)]
-        for i in range(m+1):
+        d = [[0] * (n + 1) for _ in range(m + 1)]
+        for i in range(m + 1):
             d[i][0] = i
-        for j in range(n+1):
+        for j in range(n + 1):
             d[0][j] = j
-        for i in range(1, m+1):
-            for j in range(1, n+1):
-                if ref_words[i-1] == hyp_words[j-1]:
-                    d[i][j] = d[i-1][j-1]
+        for i in range(1, m + 1):
+            for j in range(1, n + 1):
+                if ref_words[i - 1] == hyp_words[j - 1]:
+                    d[i][j] = d[i - 1][j - 1]
                 else:
-                    d[i][j] = 1 + min(d[i-1][j], d[i][j-1], d[i-1][j-1])
+                    d[i][j] = 1 + min(d[i - 1][j], d[i][j - 1], d[i - 1][j - 1])
         return d[m][n] / max(1, m)
 
+    def alphabet_distance(char1, char2):
+        # Convert both characters to lowercase to make it case-insensitive
+        char1 = char1.lower()
+        char2 = char2.lower()
+
+        # Ensure both are alphabet characters
+        if char1.isalpha() and char2.isalpha():
+            return abs(ord(char1) - ord(char2))
+        else:
+            raise ValueError("Both inputs must be alphabet characters.")
 
     def compute_rouge_score(reference, hypothesis, use_stemmer=True):
         scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=use_stemmer)
         scores = scorer.score(reference, hypothesis)
         average_fmeasure = (scores['rouge1'].fmeasure + scores['rouge2'].fmeasure + scores['rougeL'].fmeasure) / 3
         return average_fmeasure
-    
 
     question_type = kwargs['problem_type'][0]
-    
+
     contents = [completion[0]["content"] for completion in completions]
     current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
     rewards = []
 
     for content, sol in zip(contents, solution):
-    
+
         try:
             output_ans = extract_answer(content)
             gt_ans = extract_answer(sol)
             if question_type == "multiple choice":
-                reward = 1.0 if output_ans.strip() == gt_ans.strip() else 0.0
+                if script_args.quality_step:
+                    if gt_ans.strip() == "F":
+                        if output_ans.strip() == "F":
+                            reward = 1.0
+                        else:
+                            quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
+                            assert quality_distance <= 5
+                            reward = (6 - quality_distance) / 10
+
+                    else:
+                        if output_ans.strip() != "F":
+                            reward = 0.5
+                        else:
+                            reward = 0.0
+
+                        quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
+                        assert quality_distance <= 5
+                        reward += (6 - quality_distance) / 10
+                    assert reward <= 1
+                else:
+                    reward = 1.0 if output_ans.strip() == gt_ans.strip() else 0.0
             elif question_type == "numerical":
                 gt_has_decimal = ("." in gt_ans) or ("," in gt_ans)
                 out_has_decimal = ("." in output_ans) or ("," in output_ans)
@@ -151,9 +182,9 @@ def accuracy_reward(completions, solution, **kwargs):
         except Exception as e:
             print(f"Error in reward_fn for question_type '{question_type}': {e}")
             reward = 0.0
-    
+
         rewards.append(reward)
-        
+
         if os.getenv("DEBUG_MODE") == "true":
             log_path = os.getenv("LOG_PATH")
             # local_rank = int(os.getenv("LOCAL_RANK", 0))
@@ -161,7 +192,7 @@ def accuracy_reward(completions, solution, **kwargs):
                 f.write(f"------------- {current_time} Accuracy reward: {reward} -------------\n")
                 f.write(f"Content: {content}\n")
                 f.write(f"Solution: {sol}\n")
-            
+
     return rewards
 
 
@@ -191,11 +222,10 @@ def main(script_args, training_args, model_args):
     reward_funcs = [reward_funcs_registry[func] for func in script_args.reward_funcs]
 
     if script_args.dataset_name.endswith('.json') or script_args.dataset_name.endswith('.jsonl'):
-        dataset =  DatasetDict({"train": Dataset.from_json(script_args.dataset_name)})
+        dataset = DatasetDict({"train": Dataset.from_json(script_args.dataset_name)})
     else:
         # Load the dataset
         dataset = load_dataset(script_args.dataset_name, name=script_args.dataset_config)
-
 
     # Format into conversation
     def make_conversation(example):
@@ -206,7 +236,6 @@ def main(script_args, training_args, model_args):
             ],
         }
 
-    
     QUESTION_TEMPLATE = (
         "{Question}\n"
         "Please think about this question as if you were a human pondering deeply. "
@@ -224,7 +253,7 @@ def main(script_args, training_args, model_args):
     }
 
     def make_conversation_image(example):
-        
+
         return {
             "prompt": [
                 {
@@ -236,8 +265,7 @@ def main(script_args, training_args, model_args):
                 },
             ],
         }
-    
-        
+
     def make_conversation_video(example):
         return {
             "prompt": [
@@ -249,8 +277,8 @@ def main(script_args, training_args, model_args):
                     ],
                 },
             ],
-    }
-        
+        }
+
     def make_conversation_image_and_video(example):
         if example["problem_type"] == 'multiple choice':
             question = example['problem'] + "Options:\n"
@@ -259,10 +287,9 @@ def main(script_args, training_args, model_args):
         else:
             question = example['problem']
 
-        
-        msg ={
-            "prompt": 
-               [{
+        msg = {
+            "prompt":
+                [{
                     "role": "user",
                     "content": [
                         {
@@ -273,16 +300,14 @@ def main(script_args, training_args, model_args):
                             "type": "text",
                             "text": QUESTION_TEMPLATE.format(Question=question) + TYPE_TEMPLATE[example['problem_type']]
                         }
-                        ]
+                    ]
                 }]
-            }
-        
+        }
+
         return msg
 
-    
     dataset = dataset.map(make_conversation_image_and_video)
 
-    
     trainer_cls = Qwen2VLGRPOTrainer if not training_args.use_vllm else Qwen2VLGRPOVLLMTrainerModified
     print("using: ", trainer_cls)
 
@@ -299,7 +324,7 @@ def main(script_args, training_args, model_args):
         max_pixels=script_args.max_pixels,
         min_pixels=script_args.min_pixels,
     )
-    
+
     if training_args.resume_from_checkpoint is not None:
         checkpoint = training_args.resume_from_checkpoint
         trainer.train(resume_from_checkpoint=checkpoint)

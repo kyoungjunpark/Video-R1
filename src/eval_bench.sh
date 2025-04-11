@@ -2,7 +2,7 @@
 # run_models.sh
 
 model_paths=(
-    "Model Path"
+    "src/r1-v/log/Qwen2.5-VL-7B-Video-7B-cot-sft/"
 )
 
 file_names=(
