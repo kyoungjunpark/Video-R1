@@ -28,15 +28,15 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --bf16 \
     --logging_steps 1 \
     --gradient_checkpointing true \
-    --temporal false \
-    --quality_step true \
+    --temporal true \
+    --temporal_gen false \
     --len_control true \
     --attn_implementation flash_attention_2 \
     --max_pixels 401408 \
     --num_train_epochs 1 \
     --run_name Video-R1-Discriminator \
-    --save_steps 500 \
+    --save_steps 1000 \
     --beta 0.04 \
     --max_grad_norm 5 \
-    --save_only_model true \
-    --num_generations 8  # number of outputs G in grpo, reduce it would lead to faster training and smaller memory cost but higher variance  
+    --save_only_model false \
+    --num_generations 8  # number of outputs G in grpo, reduce it would lead to faster training and smaller memory cost but higher variance

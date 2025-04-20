@@ -27,9 +27,3 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --save_steps 1000 \
     --max_grad_norm 5 \
     --save_only_model true \
-~
-~
-~
-~
-~
-~

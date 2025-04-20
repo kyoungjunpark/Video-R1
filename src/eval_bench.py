@@ -10,7 +10,7 @@ from transformers import AutoProcessor, AutoTokenizer
 from vllm import LLM, SamplingParams
 from qwen_vl_utils import process_vision_info
 import argparse
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import precision_score, recall_score, f1_score, matthews_corrcoef
 
 BSZ = 64
 
@@ -45,9 +45,11 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 tokenizer.padding_side = "left"
 processor.tokenizer = tokenizer
 
-for dataset_name in ["src/r1-v/Video-Ours-data/real_gen_r1_sft_cot_test.json"]:
+# src/r1-v/Video-Ours-data/real_gen_r1_sft_cot_test.json
+# src/r1-v/Video-Ours-data/real_gen_r1_sft_cot_quality_test.json
+for dataset_name in ["src/r1-v/Video-Ours-data/real_gen_r1_sft_cot_quality_test.json"]:
 
-    OUTPUT_PATH = "src/r1-v/Video-Ours-data/grpo_output.json"
+    OUTPUT_PATH = "src/r1-v/Video-Ours-data/grpo_quality_output.json"
     PROMPT_PATH = dataset_name
 
     if PROMPT_PATH.endswith('.jsonl'):
@@ -280,8 +282,10 @@ for dataset_name in ["src/r1-v/Video-Ours-data/real_gen_r1_sft_cot_test.json"]:
     precision = precision_score(gts, answers)
     recall = recall_score(gts, answers)
     f1 = f1_score(gts, answers)
+    mcc = matthews_corrcoef(gts, answers)
+
     final_acc = {'mean_acc': torch.tensor(mean_acc).mean().item(), 'mean_mra': 0.0, "f1": f1, "precision": precision,
-                 "recall": recall}
+                 "recall": recall, "mcc": mcc}
     if mean_mra != []:
         final_acc['mean_mra'] = torch.tensor(mean_mra).mean().item()
 

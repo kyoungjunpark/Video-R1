@@ -53,11 +53,20 @@ class GRPOScriptArguments(ScriptArguments):
         metadata={"help": "Minimum number of pixels for the image"},
     )
     temporal: Optional[bool] = field(
-        default=True,
+        default=False,
         metadata={"help": "whether using temporal GRPO"},
     )
+    temporal_gen: Optional[bool] = field(
+        default=False,
+        metadata={"help": "whether using temporal gen GRPO"},
+    )
     quality_step: Optional[bool] = field(
-        default=True,
+        default=False,
+        metadata={"help": "whether using quality steps GRPO"},
+    )
+
+    reward_timestamp: Optional[bool] = field(
+        default=False,
         metadata={"help": "whether using quality steps GRPO"},
     )
     len_control: Optional[bool] = field(
@@ -117,7 +126,33 @@ def accuracy_reward(completions, solution, **kwargs):
         average_fmeasure = (scores['rouge1'].fmeasure + scores['rouge2'].fmeasure + scores['rougeL'].fmeasure) / 3
         return average_fmeasure
 
+    def compute_overlap_duration(opt1: str, opt2: str, option_ranges: dict) -> float:
+
+        range1 = option_ranges.get(opt1)
+        range2 = option_ranges.get(opt2)
+        if range1 is None or range2 is None:
+            return 0.0
+
+        start = max(range1[0], range2[0])
+        end = min(range1[1], range2[1])
+
+        return max(0.0, end - start)
+
     question_type = kwargs['problem_type'][0]
+    question_option = kwargs['options'][0]
+    option_ranges = {}
+    print("question_option: ", question_option)
+    for opt in question_option:
+        match = re.match(r"([A-H])\. .*?(\d+\.?\d*)-(\d+\.?\d*) seconds", opt)
+        if match:
+            key = match.group(1)
+            start = float(match.group(2))
+            end = float(match.group(3))
+            option_ranges[key] = (start, end)
+        else:
+            # Handle "H. The real-world video"
+            key = opt[0]
+            option_ranges[key] = None
 
     contents = [completion[0]["content"] for completion in completions]
     current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
@@ -132,22 +167,45 @@ def accuracy_reward(completions, solution, **kwargs):
                 if script_args.quality_step:
                     if gt_ans.strip() == "F":
                         if output_ans.strip() == "F":
-                            reward = 1.0
+                            reward = 2.0
                         else:
-                            quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
-                            assert quality_distance <= 5
-                            reward = (6 - quality_distance) / 10
-
+                            reward = 0.0
                     else:
                         if output_ans.strip() != "F":
-                            reward = 0.5
+                            reward = 1.0
                         else:
                             reward = 0.0
 
-                        quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
-                        assert quality_distance <= 5
-                        reward += (6 - quality_distance) / 10
-                    assert reward <= 1
+                        if gt_ans.strip() == output_ans.strip():
+                            reward += 1.0
+                        else:
+                            quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
+                            assert quality_distance <= 5
+                            reward += (6 - quality_distance) / 10
+                    assert reward <= 2.0
+                elif script_args.reward_timestamp:
+                    if gt_ans.strip() == "H":
+                        if output_ans.strip() == "H":
+                            reward = 2.0
+                        else:
+                            reward = 0.0
+                    else:
+                        if gt_ans.strip() == output_ans.strip():
+                            reward = 2.0
+                        else:
+                            if output_ans.strip() == "H":
+                                reward = 0.0
+                            else:
+                                # 0 - 1.25
+                                overlap = compute_overlap_duration(output_ans.strip(), gt_ans.strip(), option_ranges)
+                                if overlap == 1.25:
+                                    reward = 0.5
+                                elif overlap > 1.25:
+                                    print("Cannot over 1.25: ", overlap)
+                                    raise Exception
+                                else:
+                                    reward = 0.0
+
                 else:
                     reward = 1.0 if output_ans.strip() == gt_ans.strip() else 0.0
             elif question_type == "numerical":
