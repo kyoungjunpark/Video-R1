@@ -194,6 +194,8 @@ for dataset_name in [args.dataset_path]:
     mean_mra = []
     answers = []
     gts = []
+    answers_binary = []
+    gts_binary = []
     for i in tqdm(range(start_idx, len(messages), BSZ), desc="Processing batches"):
         batch_messages = messages[i:i + BSZ]
 
@@ -249,21 +251,30 @@ for dataset_name in [args.dataset_path]:
             if output_ans == '':
                 output_ans = model_output
             gt_ans = extract_answer(sample.get("solution", ""))
-            if output_ans.strip() == "A":
-                answers.append(1)
-            elif output_ans.strip() == "B":
-                answers.append(0)
-            else:
-                print("error: ", output_ans)
-                continue
 
-            if gt_ans.strip() == "A":
-                gts.append(1)
-            elif gt_ans.strip() == "B":
-                gts.append(0)
+            output_ans = output_ans.strip()
+            letter_to_index = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5}
+            letter_to_index_ans = {"A": 1, "B": 1, "C": 1, "D": 1, "E": 1, "F": 0}
+
+            if output_ans in letter_to_index:
+                answers.append(letter_to_index[output_ans])
             else:
-                print("error: ", gt_ans)
-                raise Exception(gt_ans)
+                print("error:", output_ans)
+
+            if gt_ans in letter_to_index:
+                gts.append(letter_to_index[gt_ans])
+            else:
+                print("error:", gt_ans)
+
+            if output_ans in letter_to_index_ans:
+                answers_binary.append(letter_to_index_ans[output_ans])
+            else:
+                print("error:", output_ans)
+
+            if gt_ans in letter_to_index_ans:
+                gts_binary.append(letter_to_index_ans[gt_ans])
+            else:
+                print("error:", gt_ans)
 
             sample['correct'] = True if sample["reward"] == 1.0 else False
             if sample['problem_type'] != 'regression':
@@ -281,13 +292,24 @@ for dataset_name in [args.dataset_path]:
         except Exception as e:
             print(f"Error writing to output file: {e}")
 
-    precision = precision_score(gts, answers)
-    recall = recall_score(gts, answers)
-    f1 = f1_score(gts, answers)
+    # Micro precision, recall, and F1
+    precision = precision_score(gts, answers, average='micro')
+    recall = recall_score(gts, answers, average='micro')
+    f1 = f1_score(gts, answers, average='micro')
+
+    # MCC는 멀티클래스도 지원하므로 그대로 사용
     mcc = matthews_corrcoef(gts, answers)
 
+
+    precision_binary = precision_score(gts_binary, answers_binary)
+    recall_binary = recall_score(gts_binary, answers_binary)
+    f1_binary = f1_score(gts_binary, answers_binary)
+
+    # MCC는 멀티클래스도 지원하므로 그대로 사용
+    mcc_binary = matthews_corrcoef(gts_binary, answers_binary)
+
     final_acc = {'mean_acc': torch.tensor(mean_acc).mean().item(), 'mean_mra': 0.0, "f1": f1, "precision": precision,
-                 "recall": recall, "mcc": mcc}
+                 "recall": recall, "mcc": mcc, "f1_binary": f1_binary, "precision_binary": precision_binary, "recall_binary": recall_binary, "mcc_binary": mcc_binary}
     if mean_mra != []:
         final_acc['mean_mra'] = torch.tensor(mean_mra).mean().item()
 

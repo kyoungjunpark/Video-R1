@@ -205,7 +205,6 @@ def accuracy_reward(completions, solution, **kwargs):
                                     raise Exception
                                 else:
                                     reward = 0.0
-
                 else:
                     reward = 1.0 if output_ans.strip() == gt_ans.strip() else 0.0
             elif question_type == "numerical":
