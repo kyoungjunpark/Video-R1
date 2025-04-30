@@ -517,7 +517,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         if self.temporal and video_inputs:
             indices = torch.randperm(video_inputs[0].size(0))
             shuffled_video_inputs = [video_inputs[0][indices]]
-            # print("1: ", shuffled_video_inputs[0].size())
+
             shuffled_prompt_inputs = self.processing_class(
                 text=copy.deepcopy(prompts_text),
                 images=image_inputs,
@@ -535,7 +535,7 @@ class Qwen2VLGRPOTrainer(Trainer):
                 shuffled_prompt_ids = shuffled_prompt_ids[:, -self.max_prompt_length:]
                 shuffled_prompt_mask = shuffled_prompt_mask[:, -self.max_prompt_length:]
 
-        if self.temporal_gen and video_inputs:
+        if self.temporal_gen and is_real_video and video_inputs:
             perturbed_video = self.perturb_video_sequence_gaussian(video_inputs[0])
             gen_manipulated_video_inputs = [perturbed_video]
 
@@ -580,7 +580,7 @@ class Qwen2VLGRPOTrainer(Trainer):
                 else:
                     shuffled_prompt_completion_ids = unwrapped_model.generate(**prompt_inputs,
                                                                               generation_config=self.dummy_generation_config)
-            if self.temporal_gen:
+            if self.temporal_gen and is_real_video:
                 if video_inputs:
                     gen_manipulated_prompt_completion_ids = unwrapped_model.generate(**gen_manipulated_prompt_inputs,
                                                                                      generation_config=self.shuffled_generation_config)
@@ -593,10 +593,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                 else:
                     gen_manipulated_prompt_completion_ids = unwrapped_model.generate(**prompt_inputs,
                                                                                      generation_config=self.dummy_generation_config)
-
-        print('path:', input_copy[0]['content'][0][inputs[0]['data_type']])
-        print('problem_id:', inputs[0]['problem_id'])
-        print('prompt_length:', prompt_length)
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.processing_class.eos_token_id
@@ -679,7 +675,7 @@ class Qwen2VLGRPOTrainer(Trainer):
                 shuffled_rewards_per_func[:, i] = torch.tensor(shuffled_output_reward_func, dtype=torch.float32,
                                                                device=device)
 
-        if self.temporal_gen and video_inputs:
+        if self.temporal_gen and is_real_video and video_inputs:
             gen_manipulated_completions = self.processing_class.batch_decode(gen_manipulated_completion_ids,
                                                                              skip_special_tokens=True)
             if is_conversational(inputs[0]):
@@ -743,7 +739,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         else:
             temporal_rewards = torch.tensor([0.5]).to('cuda')
 
-        if self.temporal_gen and video_inputs:
+        if self.temporal_gen and is_real_video and video_inputs:
             gen_temporal_rewards_per_func = rewards_per_func.clone()
 
             # Flip the gen_manipulated_rewards from real -> gen
@@ -765,7 +761,7 @@ class Qwen2VLGRPOTrainer(Trainer):
         # Sum the rewards from all reward functions
         if self.temporal and video_inputs:
             rewards = temporal_rewards_per_func.sum(dim=1)
-        elif self.temporal_gen and video_inputs:
+        elif self.temporal_gen and is_real_video and video_inputs:
             rewards = gen_temporal_rewards_per_func.sum(dim=1)
         else:
             rewards = rewards_per_func.sum(dim=1)
@@ -848,7 +844,7 @@ class Qwen2VLGRPOTrainer(Trainer):
             self._metrics["temporal_rewards"].append(
                 self.accelerator.gather_for_metrics(temporal_rewards_list).mean().item())
 
-        if self.temporal_gen:
+        if self.temporal_gen and is_real_video:
             gen_temporal_rewards_list = self.accelerator.gather_for_metrics(gen_temporal_rewards)
             self._metrics["gen_temporal_rewards"].append(
                 self.accelerator.gather_for_metrics(gen_temporal_rewards_list).mean().item())

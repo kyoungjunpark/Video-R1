@@ -2,6 +2,7 @@ cd src/r1-v
 
 export DEBUG_MODE="true" # Enable Debug if you want to see the rollout of model during RL
 export LOG_PATH="./debug_log_2b.txt"
+export WANDB_PROJECT=GRPO-quality-matchformat-temgen
 
 # For resume training:  --resume_from_checkpoint Model_Path \
 # Set temporal to choose between T-GRPO and GRPO, and len_control to enable or disable the length control reward.
@@ -16,7 +17,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --master_addr="127.0.0.1" \
     --master_port="12365" \
     src/open_r1/grpo.py \
-    --output_dir "./log/Qwen2.5-VL-7B-Quality-GRPO2" \
+    --output_dir "./log/Qwen2.5-VL-7B-Quality-GRPO-match_format-temgen" \
     --model_name_or_path './log/Qwen2.5-VL-7B-Video-7B-cot-sft' \
     --dataset_name "./Video-Ours-data/real_gen_r1_sft_cot_quality_train.json" \
     --deepspeed local_scripts/zero3.json \
@@ -31,12 +32,13 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --logging_steps 1 \
     --gradient_checkpointing true \
     --temporal false \
+    --temporal_gen true \
     --quality_step true \
     --len_control true \
     --attn_implementation flash_attention_2 \
     --max_pixels 401408 \
     --num_train_epochs 1 \
-    --run_name Video-R1-Quality-Discriminator \
+    --run_name Video-R1-Quality-Discriminator2 \
     --save_steps 500 \
     --beta 0.04 \
     --max_grad_norm 5 \

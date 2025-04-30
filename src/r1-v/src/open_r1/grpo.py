@@ -141,7 +141,6 @@ def accuracy_reward(completions, solution, **kwargs):
     question_type = kwargs['problem_type'][0]
     question_option = kwargs['options'][0]
     option_ranges = {}
-    print("question_option: ", question_option)
     for opt in question_option:
         match = re.match(r"([A-H])\. .*?(\d+\.?\d*)-(\d+\.?\d*) seconds", opt)
         if match:
@@ -158,6 +157,13 @@ def accuracy_reward(completions, solution, **kwargs):
     current_time = datetime.now().strftime("%d-%H-%M-%S-%f")
     rewards = []
 
+    percentage_to_answer = {
+        20: "A",
+        40: "B",
+        60: "C",
+        80: "D",
+        95: "E"
+    }
     for content, sol in zip(contents, solution):
 
         try:
@@ -177,12 +183,25 @@ def accuracy_reward(completions, solution, **kwargs):
                             reward = 0.0
 
                         if gt_ans.strip() == output_ans.strip():
-                            reward += 1.0
+                            reward += 1.5
                         else:
                             quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
                             assert quality_distance <= 5
                             reward += (6 - quality_distance) / 10
-                    assert reward <= 2.0
+
+                    think_match = re.search(r'<think>.*?(\d+)%.*?</think>', content)
+
+                    if think_match:
+                        percentage = int(think_match.group(1))
+                        clean_ans = output_ans.strip()
+                        if percentage in percentage_to_answer and clean_ans != percentage_to_answer[percentage]:
+                            print("Think mismatch: ", clean_ans, percentage)
+                            reward -= 1.0
+                        else:
+                            print("No percentage", percentage, clean_ans)
+
+
+                    assert reward <= 4.0
                 elif script_args.reward_timestamp:
                     if gt_ans.strip() == "H":
                         if output_ans.strip() == "H":
