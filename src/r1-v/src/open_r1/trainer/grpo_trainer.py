@@ -39,6 +39,9 @@ from transformers import (
     TrainerCallback,
     is_wandb_available,
 )
+import torch._dynamo
+torch._dynamo.config.verbose = True
+
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 from transformers.utils import is_peft_available
 
@@ -57,6 +60,7 @@ if is_peft_available():
 
 if is_wandb_available():
     import wandb
+    # wandb.init(mode="disabled")
 
 # What we call a reward function is a callable that takes a list of prompts and completions and returns a list of
 # rewards. When it's a string, it's a model ID, so it's loaded as a pretrained model.
@@ -232,6 +236,7 @@ class Qwen2VLGRPOTrainer(Trainer):
             # If PEFT is used, the reference model is not needed since the adapter can be disabled
             # to revert to the initial model.
             self.ref_model = None
+
 
         # Processing class
         if processing_class is None:
@@ -459,11 +464,13 @@ class Qwen2VLGRPOTrainer(Trainer):
             input_copy[0]['content'][0]['video'] = inputs[0]['path']
 
         # Check real video
-        if inputs[0]['solution'] == '<answer>B</answer>':
+        # Discriminator
+        # if inputs[0]['solution'] == '<answer>B</answer>':
+        # Quality
+        if inputs[0]['solution'] == '<answer>F</answer>':
             is_real_video = True
         else:
             is_real_video = False
-
         try:
             image_inputs, video_inputs, video_kwargs = process_vision_info(input_copy, return_video_kwargs=True)
         except Exception as e:
@@ -500,7 +507,6 @@ class Qwen2VLGRPOTrainer(Trainer):
             # max_length=self.max_prompt_length,
         )
         """
-
         prompt_inputs = super()._prepare_inputs(prompt_inputs)
 
         # fix prompt_inputs["input_ids"] length issue
@@ -528,19 +534,25 @@ class Qwen2VLGRPOTrainer(Trainer):
                 add_special_tokens=False,
             )
             shuffled_prompt_inputs = super()._prepare_inputs(shuffled_prompt_inputs)
-
             shuffled_prompt_ids, shuffled_prompt_mask = shuffled_prompt_inputs["input_ids"], shuffled_prompt_inputs[
                 "attention_mask"]
             if self.max_prompt_length is not None:
                 shuffled_prompt_ids = shuffled_prompt_ids[:, -self.max_prompt_length:]
                 shuffled_prompt_mask = shuffled_prompt_mask[:, -self.max_prompt_length:]
 
-        if self.temporal_gen and is_real_video and video_inputs:
+        if self.temporal_gen and video_inputs:
             perturbed_video = self.perturb_video_sequence_gaussian(video_inputs[0])
+            target_device = prompt_inputs["input_ids"].device if "input_ids" in prompt_inputs else image_inputs[0].device
+            perturbed_video = perturbed_video.to(dtype=video_inputs[0].dtype, device=target_device)
+
+            assert perturbed_video.shape == video_inputs[0].shape
+
             gen_manipulated_video_inputs = [perturbed_video]
+            # indices = torch.randperm(video_inputs[0].size(0))
+            # shuffled_video_inputs = [video_inputs[0][indices]]
+            # gen_manipulated_video_inputs = shuffled_video_inputs
 
             assert video_inputs[0].size() == perturbed_video.size(), (video_inputs[0].size(), perturbed_video.size())
-            # print("2: ", gen_manipulated_video_inputs[0].size())
             # 2:  torch.Size([12, 3, 252, 392])
             gen_manipulated_prompt_inputs = self.processing_class(
                 text=copy.deepcopy(prompts_text),
@@ -555,10 +567,10 @@ class Qwen2VLGRPOTrainer(Trainer):
             gen_manipulated_prompt_ids, gen_manipulated_prompt_mask = gen_manipulated_prompt_inputs["input_ids"], \
                                                                       gen_manipulated_prompt_inputs[
                                                                           "attention_mask"]
+
             if self.max_prompt_length is not None:
                 gen_manipulated_prompt_ids = gen_manipulated_prompt_ids[:, -self.max_prompt_length:]
                 gen_manipulated_prompt_mask = gen_manipulated_prompt_mask[:, -self.max_prompt_length:]
-
         # Generate completions
         with unwrap_model_for_generation(model, self.accelerator) as unwrapped_model:
             prompt_completion_ids = unwrapped_model.generate(**prompt_inputs, generation_config=self.generation_config)
@@ -576,14 +588,14 @@ class Qwen2VLGRPOTrainer(Trainer):
                     shuffled_completion_ids = shuffled_prompt_completion_ids[:, shuffled_prompt_length:]
                     shuffled_prompt_mask = prompt_mask.repeat_interleave(self.shuffled_num_generations, dim=0)
 
-
                 else:
                     shuffled_prompt_completion_ids = unwrapped_model.generate(**prompt_inputs,
                                                                               generation_config=self.dummy_generation_config)
-            if self.temporal_gen and is_real_video:
+            if self.temporal_gen:
                 if video_inputs:
                     gen_manipulated_prompt_completion_ids = unwrapped_model.generate(**gen_manipulated_prompt_inputs,
                                                                                      generation_config=self.shuffled_generation_config)
+
                     gen_manipulated_prompt_length = gen_manipulated_prompt_ids.size(1)
 
                     gen_manipulated_prompt_ids = gen_manipulated_prompt_completion_ids[:, :gen_manipulated_prompt_length]
@@ -593,7 +605,6 @@ class Qwen2VLGRPOTrainer(Trainer):
                 else:
                     gen_manipulated_prompt_completion_ids = unwrapped_model.generate(**prompt_inputs,
                                                                                      generation_config=self.dummy_generation_config)
-
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.processing_class.eos_token_id
         device = self.accelerator.device
@@ -675,7 +686,8 @@ class Qwen2VLGRPOTrainer(Trainer):
                 shuffled_rewards_per_func[:, i] = torch.tensor(shuffled_output_reward_func, dtype=torch.float32,
                                                                device=device)
 
-        if self.temporal_gen and is_real_video and video_inputs:
+        if self.temporal_gen and video_inputs:
+
             gen_manipulated_completions = self.processing_class.batch_decode(gen_manipulated_completion_ids,
                                                                              skip_special_tokens=True)
             if is_conversational(inputs[0]):
@@ -687,19 +699,37 @@ class Qwen2VLGRPOTrainer(Trainer):
             gen_manipulated_prompts = [prompt for prompt in prompts for _ in range(self.shuffled_num_generations)]
             gen_manipulated_rewards_per_func = torch.zeros(len(gen_manipulated_prompts), len(self.reward_funcs),
                                                            device=device)
+
             for i, (reward_func, reward_processing_class) in enumerate(
                     zip(self.reward_funcs, self.reward_processing_classes)
             ):
                 # Repeat all input columns (but "prompt" and "completion") to match the number of generations
                 gen_manipulated_reward_kwargs = {key: [] for key in inputs[0].keys() if
                                                  key not in ["prompt", "completion"]}
+
                 for key in gen_manipulated_reward_kwargs:
                     for example in inputs:
                         # Repeat each value in the column for `num_generations` times
                         gen_manipulated_reward_kwargs[key].extend([example[key]] * self.shuffled_num_generations)
+
+                # Flip from real -> fake
+                gen_manipulated_reward_kwargs["solution"] = ["<answer>C</answer>"] * self.shuffled_num_generations
+                # ['<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>']
+                # ['<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>']
+                # ['<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>']
+                # ['<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>']
+                # ['<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>']
+                # ['<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>', '<answer>F</answer>']
+                # ['<answer>E</answer>', '<answer>E</answer>', '<answer>E</answer>', '<answer>E</answer>']
+
                 gen_manipulated_output_reward_func = reward_func(prompts=gen_manipulated_prompts,
                                                                  completions=gen_manipulated_completions,
                                                                  **gen_manipulated_reward_kwargs)
+                # print("here: ", gen_manipulated_reward_kwargs.keys())
+                # dict_keys(['problem_id', 'problem', 'data_type', 'problem_type', 'options', 'process', 'solution', 'path', 'data_source'])
+                # gen_manipulated_reward_kwargs.keys():
+                # accuracy_reward: 0
+                # format_reward: 1
                 gen_manipulated_rewards_per_func[:, i] = torch.tensor(gen_manipulated_output_reward_func,
                                                                       dtype=torch.float32,
                                                                       device=device)
@@ -739,24 +769,45 @@ class Qwen2VLGRPOTrainer(Trainer):
         else:
             temporal_rewards = torch.tensor([0.5]).to('cuda')
 
-        if self.temporal_gen and is_real_video and video_inputs:
+        if self.temporal_gen and video_inputs:
             gen_temporal_rewards_per_func = rewards_per_func.clone()
 
-            # Flip the gen_manipulated_rewards from real -> gen
-            gen_manipulated_rewards_per_func[:, 0] = 1 - gen_manipulated_rewards_per_func[:, 0]
+            # Case 1: 0/1 Discriminator
+            # gen_manipulated_rewards_per_func[:, 0] = 1 - gen_manipulated_rewards_per_func[:, 0]
+
+            # Case 2: A-E, F
+            # if it is 0 reward: "solution is real" but answer is related to the fake
+            # change to 1 if 0 else all 0
+
+            # gen_manipulated_rewards_per_func:  tensor([0., 0., 1., 0.], device='cuda:0') tensor([0., 0., 1., 0.], device='cuda:0')
+            #  tensor([1.0000, 3.2000, 3.2000, 1.0000, 3.2000, 3.0000, 3.2000, 1.0000],
 
             acc_mean = gen_temporal_rewards_per_func[:, 0].mean()
-            gen_manipulated_acc_mean = gen_manipulated_rewards_per_func[:, 0].mean()
-            print(gen_temporal_rewards_per_func[:, 0], gen_manipulated_rewards_per_func[:, 0])
+            gen_manipulated_acc_mean = gen_manipulated_rewards_per_func[:, 0].detach().meanf()
+            if is_real_video:
+                print(gen_manipulated_rewards_per_func)
+                # tensor([[0.0000, 1.0000],
+                #         [0.0000, 1.0000],
+                #         [2.5000, 1.0000],
+                #         [0.0000, 1.0000]], device='cuda:1')
+                # tensor([[0.0000, 1.0000],
+                #         [0.0000, 1.0000],
+                #         [1.4000, 1.0000],
+                #         [1.4000, 1.0000]], device='cuda:3')['<answer>E</answer>', '<answer>E</answer>', '<answer>E</answer>', '<answer>E</answer>']
+                #
+                # tensor([[2.5000, 1.0000],
+                #         [1.4000, 1.0000],
+                #         [1.4000, 1.0000],
+                #         [0.0000, 1.0000]], device='cuda:2')
+            if gen_manipulated_acc_mean >= 1.0:
+                mask = gen_temporal_rewards_per_func[:, 0] >= 1.0
+                gen_temporal_rewards_per_func[mask, 0] = gen_temporal_rewards_per_func[mask, 0] + 0.5
+                gen_temporal_rewards = (0.5 * mask.sum()).to('cuda')
 
-            if acc_mean * 0.8 <= gen_manipulated_acc_mean:
-                mask = gen_temporal_rewards_per_func[:, 0] > 0.1
-                gen_temporal_rewards_per_func[mask, 0] = gen_temporal_rewards_per_func[mask, 0] + 0.3
-                gen_temporal_rewards = torch.tensor(0.3 * mask.sum()).to('cuda')
             else:
                 gen_temporal_rewards = torch.tensor(0.0).to('cuda')
         else:
-            gen_temporal_rewards = torch.tensor(0.0).to('cuda')
+            gen_temporal_rewards = torch.tensor(0.5).to('cuda')
 
         # Sum the rewards from all reward functions
         if self.temporal and video_inputs:
@@ -789,8 +840,8 @@ class Qwen2VLGRPOTrainer(Trainer):
                     if 320 <= lenth_list[idx] <= 512:
                         rewards[idx] += 0.2
 
-        print(rewards)
-        print(completion_mask.sum(1))
+        # print(rewards)
+        # print(completion_mask.sum(1))
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -844,7 +895,7 @@ class Qwen2VLGRPOTrainer(Trainer):
             self._metrics["temporal_rewards"].append(
                 self.accelerator.gather_for_metrics(temporal_rewards_list).mean().item())
 
-        if self.temporal_gen and is_real_video:
+        if self.temporal_gen:
             gen_temporal_rewards_list = self.accelerator.gather_for_metrics(gen_temporal_rewards)
             self._metrics["gen_temporal_rewards"].append(
                 self.accelerator.gather_for_metrics(gen_temporal_rewards_list).mean().item())

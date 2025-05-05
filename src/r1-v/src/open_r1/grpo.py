@@ -118,7 +118,7 @@ def accuracy_reward(completions, solution, **kwargs):
         if char1.isalpha() and char2.isalpha():
             return abs(ord(char1) - ord(char2))
         else:
-            raise ValueError("Both inputs must be alphabet characters.")
+            raise ValueError("Both inputs must be alphabet characters.", (char1, char2))
 
     def compute_rouge_score(reference, hypothesis, use_stemmer=True):
         scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=use_stemmer)
@@ -178,28 +178,21 @@ def accuracy_reward(completions, solution, **kwargs):
                             reward = 0.0
                     else:
                         if output_ans.strip() != "F":
+                            # 1 - 1.5 - 2.5
                             reward = 1.0
+
+                            if gt_ans.strip() == output_ans.strip():
+                                reward += 1.5
+                            else:
+                                # 0.1 ~ 0.5
+                                quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
+                                assert quality_distance <= 5
+                                reward += (6 - quality_distance) / 10
+
                         else:
                             reward = 0.0
 
-                        if gt_ans.strip() == output_ans.strip():
-                            reward += 1.5
-                        else:
-                            quality_distance = alphabet_distance(gt_ans.strip(), output_ans.strip())
-                            assert quality_distance <= 5
-                            reward += (6 - quality_distance) / 10
-
-                    think_match = re.search(r'<think>.*?(\d+)%.*?</think>', content)
-
-                    if think_match:
-                        percentage = int(think_match.group(1))
-                        clean_ans = output_ans.strip()
-                        if percentage in percentage_to_answer and clean_ans != percentage_to_answer[percentage]:
-                            print("Think mismatch: ", clean_ans, percentage)
-                            reward -= 1.0
-                        else:
-                            print("No percentage", percentage, clean_ans)
-
+                    # think_match = re.search(r'<think>.*?(\d+)%.*?</think>', content)
 
                     assert reward <= 4.0
                 elif script_args.reward_timestamp:

@@ -2,13 +2,13 @@
 # run_models.sh
 #     # "src/r1-v/log/Qwen2.5-VL-7B-Video-7B-cot-sft/",
 model_paths=(
-    "src/r1-v/log/Qwen2.5-VL-7B-GRPO-gentemp/checkpoint-6000"
+    "src/r1-v/log/Qwen2.5-VL-7B-Quality-GRPO-match_format-temgen/checkpoint-2000"
 )
 
 file_names=(
     "FileName"
 )
-output_path=("src/r1-v/Video-Ours-data/grpo_output_gentemp.json")
+output_path=("src/r1-v/Video-Ours-data/grpo_output_quality_gentemp.json")
 dataset_path=("src/r1-v/Video-Ours-data/real_gen_r1_sft_cot_quality_test.json")
 
 export DECORD_EOF_RETRY_MAX=20480
