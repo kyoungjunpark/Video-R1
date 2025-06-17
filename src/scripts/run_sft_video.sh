@@ -10,9 +10,9 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --master_addr="127.0.0.1" \
     --master_port="12349" \
     src/open_r1/sft_video.py \
-    --output_dir "./log/Qwen2.5-VL-7B-Video-7B-cot-sft" \
+    --output_dir "./log/Qwen2.5-VL-7B-Video-7B-cot-sft-0611" \
     --model_name_or_path "Qwen/Qwen2.5-VL-7B-Instruct" \
-    --dataset_name "./Video-R1-data/Video-R1-COT-165k.json" \
+    --dataset_name "./Video-R1-data/real_gen_r1_sft_cot_train.json" \
     --deepspeed local_scripts/zero2.json \
     --per_device_train_batch_size 1 \
     --gradient_accumulation_steps 2 \
@@ -22,7 +22,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --report_to wandb \
     --gradient_checkpointing true \
     --attn_implementation flash_attention_2 \
-    --num_train_epochs 1 \
+    --num_train_epochs 3 \
     --run_name Qwen2.5-VL-7B-Video-cot-sft \
     --save_steps 1000 \
     --max_grad_norm 5 \

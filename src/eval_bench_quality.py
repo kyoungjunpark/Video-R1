@@ -255,26 +255,22 @@ for dataset_name in [args.dataset_path]:
             output_ans = output_ans.strip()
             letter_to_index = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4, "F": 5}
             letter_to_index_ans = {"A": 1, "B": 1, "C": 1, "D": 1, "E": 1, "F": 0}
+            if output_ans not in letter_to_index or gt_ans not in letter_to_index:
+                continue
 
-            if output_ans in letter_to_index:
-                answers.append(letter_to_index[output_ans])
-            else:
-                print("error:", output_ans)
+            answers.append(letter_to_index[output_ans])
 
-            if gt_ans in letter_to_index:
-                gts.append(letter_to_index[gt_ans])
-            else:
-                print("error:", gt_ans)
+            gts.append(letter_to_index[gt_ans])
 
-            if output_ans in letter_to_index_ans:
-                answers_binary.append(letter_to_index_ans[output_ans])
-            else:
-                print("error:", output_ans)
+            if output_ans not in letter_to_index_ans or gt_ans not in letter_to_index_ans:
+                continue
 
-            if gt_ans in letter_to_index_ans:
-                gts_binary.append(letter_to_index_ans[gt_ans])
-            else:
-                print("error:", gt_ans)
+
+            answers_binary.append(letter_to_index_ans[output_ans])
+
+
+            gts_binary.append(letter_to_index_ans[gt_ans])
+
 
             sample['correct'] = True if sample["reward"] == 1.0 else False
             if sample['problem_type'] != 'regression':
@@ -299,7 +295,6 @@ for dataset_name in [args.dataset_path]:
 
     # MCC는 멀티클래스도 지원하므로 그대로 사용
     mcc = matthews_corrcoef(gts, answers)
-
 
     precision_binary = precision_score(gts_binary, answers_binary)
     recall_binary = recall_score(gts_binary, answers_binary)

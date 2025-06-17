@@ -18,24 +18,28 @@ from PIL import Image
 from torchvision import io, transforms
 from torchvision.transforms import InterpolationMode
 from typing import Optional
-
+import random
 
 logger = logging.getLogger(__name__)
 
 IMAGE_FACTOR = 28
 MIN_PIXELS = 4 * 28 * 28
 MAX_PIXELS = 256 * 28 * 28
+# MAX_PIXELS = 128 * 28 * 28
+
 MAX_RATIO = 200
 
 # VIDEO_MIN_PIXELS = 128 * 28 * 28
 # VIDEO_MAX_PIXELS = 768 * 28 * 28
 VIDEO_MIN_PIXELS = 128 * 28 * 28
 VIDEO_MAX_PIXELS = 128 * 28 * 28
-FRAME_FACTOR = 2
-FPS = 2.0
-FPS_MIN_FRAMES = 4
-FPS_MAX_FRAMES = 16
 
+FRAME_FACTOR = 2
+FPS = 4
+FPS_MIN_FRAMES = 4
+FPS_MAX_FRAMES = 8
+
+# 49 Frames, 7 fps
 # Set the maximum number of video token inputs.
 # Here, 128K represents the maximum number of input tokens for the VLLM model.
 # Remember to adjust it according to your own configuration.
@@ -172,6 +176,8 @@ def smart_nframes(
         fps = ele.get("fps", FPS)
         min_frames = ceil_by_factor(ele.get("min_frames", FPS_MIN_FRAMES), FRAME_FACTOR)
         max_frames = floor_by_factor(ele.get("max_frames", min(FPS_MAX_FRAMES, total_frames)), FRAME_FACTOR)
+        # max_frames = floor_by_factor(FPS_MAX_FRAMES, FRAME_FACTOR)  # 강제 최대 16 프레임
+
         nframes = total_frames / video_fps * fps
         if nframes > total_frames:
             logger.warning(f"smart_nframes: nframes[{nframes}] > total_frames[{total_frames}]")
@@ -179,6 +185,8 @@ def smart_nframes(
         nframes = floor_by_factor(nframes, FRAME_FACTOR)
     if not (FRAME_FACTOR <= nframes and nframes <= total_frames):
         raise ValueError(f"nframes should in interval [{FRAME_FACTOR}, {total_frames}], but got {nframes}.")
+    # print(total_frames, max_frames, nframes)
+
     return nframes
 
 
@@ -203,6 +211,7 @@ def _read_video_torchvision(
         if "file://" in video_path:
             video_path = video_path[7:]
     st = time.time()
+    print(video_path)
     video, audio, info = io.read_video(
         video_path,
         start_pts=ele.get("video_start", 0.0),
@@ -246,13 +255,30 @@ def _read_video_decord(
     # TODO: support start_pts and end_pts
     if 'video_start' in ele or 'video_end' in ele:
         raise NotImplementedError("not support start_pts and end_pts in decord for now.")
+
     total_frames, video_fps = len(vr), vr.get_avg_fps()
+
+    duration_sec = len(vr) / video_fps
+    height, width = vr[0].shape[:2]
+
+    exceeds_1080p = height >= 1080
+    longer_than_100s = duration_sec >= 100
+
+    if exceeds_1080p or longer_than_100s:
+        # handle this video via the torchvision
+        raise Exception
+
     logger.info(f"decord:  {video_path=}, {total_frames=}, {video_fps=}, time={time.time() - st:.3f}s")
     nframes = smart_nframes(ele, total_frames=total_frames, video_fps=video_fps)
-    idx = torch.linspace(0, total_frames - 1, nframes).round().long().tolist()
+    if "start_idx" in ele.keys():
+        idx = torch.linspace(ele["start_idx"], total_frames - 1, nframes).round().long().tolist()
+    else:
+        idx = torch.linspace(0, total_frames - 1, nframes).round().long().tolist()
+    print("idx: ", idx)
     video = vr.get_batch(idx).asnumpy()
     video = torch.tensor(video).permute(0, 3, 1, 2)  # Convert to TCHW format
     sample_fps = nframes / max(total_frames, 1e-6) * video_fps
+    del vr
     return video, sample_fps
 
 
@@ -276,16 +302,21 @@ def get_video_reader_backend() -> str:
     return video_reader_backend
 
 
-def fetch_video(ele: dict, image_factor: int = IMAGE_FACTOR, return_video_sample_fps: bool = False) -> torch.Tensor | list[Image.Image]:
+def fetch_video(ele: dict, image_factor: int = IMAGE_FACTOR, tem_gen_videos: bool = False, return_video_sample_fps: bool = False) -> torch.Tensor | list[Image.Image]:
     if isinstance(ele["video"], str):
+        if tem_gen_videos:
+            ele["start_idx"] = random.randint(1, 5)
+
         video_reader_backend = get_video_reader_backend()
         try:
             video, sample_fps = VIDEO_READER_BACKENDS[video_reader_backend](ele)
+
         except Exception as e:
             logger.warning(f"video_reader_backend {video_reader_backend} error, use torchvision as default, msg: {e}")
             video, sample_fps = VIDEO_READER_BACKENDS["torchvision"](ele)
 
         nframes, _, height, width = video.shape
+        print("fetch_video", nframes, height, width)
         min_pixels = ele.get("min_pixels", VIDEO_MIN_PIXELS)
         total_pixels = ele.get("total_pixels", VIDEO_TOTAL_PIXELS)
         max_pixels = max(min(VIDEO_MAX_PIXELS, total_pixels / nframes * FRAME_FACTOR), int(min_pixels * 1.05))
@@ -307,12 +338,13 @@ def fetch_video(ele: dict, image_factor: int = IMAGE_FACTOR, return_video_sample
                 min_pixels=min_pixels,
                 max_pixels=max_pixels,
             )
+        print("fetch_video2", resized_height, resized_width)
         video = transforms.functional.resize(
             video,
             [resized_height, resized_width],
             interpolation=InterpolationMode.BICUBIC,
             antialias=True,
-        ).float()
+        ).to(dtype=torch.float16)
         if return_video_sample_fps:
             return video, sample_fps
         return video
@@ -353,6 +385,7 @@ def extract_vision_info(conversations: list[dict] | list[list[dict]]) -> list[di
 
 def process_vision_info(
     conversations: list[dict] | list[list[dict]],
+    tem_gen_videos: bool = False,
     return_video_kwargs: bool = False,
 ) -> tuple[list[Image.Image] | None, list[torch.Tensor | list[Image.Image]] | None, Optional[dict]]:
 
@@ -368,6 +401,12 @@ def process_vision_info(
             video_input, video_sample_fps = fetch_video(vision_info, return_video_sample_fps=True)
             video_sample_fps_list.append(video_sample_fps)
             video_inputs.append(video_input)
+
+            if tem_gen_videos:
+                video_input, video_sample_fps = fetch_video(vision_info, tem_gen_videos=True, return_video_sample_fps=True)
+                video_sample_fps_list.append(video_sample_fps)
+                video_inputs.append(video_input)
+
         else:
             raise ValueError("image, image_url or video should in content.")
     if len(image_inputs) == 0:

@@ -60,6 +60,11 @@ class GRPOScriptArguments(ScriptArguments):
         default=False,
         metadata={"help": "whether using temporal gen GRPO"},
     )
+    temporal_ver: Optional[bool] = field(
+        default=False,
+        metadata={"help": "whether using temporal ver GRPO"},
+    )
+
     quality_step: Optional[bool] = field(
         default=False,
         metadata={"help": "whether using quality steps GRPO"},

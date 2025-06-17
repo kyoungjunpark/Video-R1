@@ -2,11 +2,11 @@ import json
 import wandb
 
 # === Step 1: Load the trainer_state.json ===
-with open('trainer_state.json', 'r') as f:
+with open('chekpoint-2000/trainer_state.json', 'r') as f:
     trainer_state = json.load(f)
 
 # === Step 2: Initialize wandb ===
-wandb.init(project="your-project-name", name="trainer-state-upload", resume="allow")
+wandb.init(project="CoT-0612", name="trainer-state-upload", resume="allow")
 
 # === Step 3: Upload log_history entries step-by-step ===
 log_history = trainer_state.get("log_history", [])

@@ -54,7 +54,7 @@ from qwen_vl_utils import process_vision_info
 
 from datasets import Dataset, DatasetDict
 
-import wandb
+# import wandb
 
 from typing import List, Dict, Any
 
@@ -84,10 +84,23 @@ def download_video(url: str, folder: str = '/tmp/videos/') -> str:
         raise Exception(f"Failed to download video: {e}")
 
 
+import re
+
+def remove_answer_block(text: str) -> str:
+    """Remove <answer>...</answer> block from the input text."""
+    return re.sub(r"<answer>.*?</answer>", "", text, flags=re.DOTALL)
+
 def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
-    """Prepare dataset example for training."""
+    """Prepare dataset example for training by removing <answer> blocks inside process."""
 
     system_message = "You are a helpful assistant"
+
+    SYSTEM_PROMPT = (
+        "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
+        "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
+        "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
+        "<think> reasoning process here </think><answer> answer here </answer>"
+    )
 
     QUESTION_TEMPLATE = (
         "{Question}\n"
@@ -112,10 +125,13 @@ def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     else:
         question = example['problem']
 
+    # Remove <answer>...</answer> block from process field
+    process_no_answer = remove_answer_block(example.get("process", ""))
+
     messages = [
         {
             "role": "system",
-            "content": [{"type": "text", "text": system_message}]
+            "content": [{"type": "text", "text": SYSTEM_PROMPT}]
         },
         {
             "role": "user",
@@ -123,8 +139,6 @@ def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
                 {
                     "type": example['data_type'],
                     example['data_type']: example['path']
-                    # "max_pixels": 360*420,
-                    # "fps": 1.0
                 },
                 {
                     "type": "text",
@@ -134,11 +148,12 @@ def prepare_dataset(example: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
         },
         {
             "role": "assistant",
-            "content": [{"type": "text", "text": example['process'] + "\n" + example['solution']}]
+            "content": [{"type": "text", "text": process_no_answer + "\n" + example['solution']}]
         }
     ]
 
     return {"messages": messages}
+
 
 
 def collate_fn(examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
@@ -149,11 +164,9 @@ def collate_fn(examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
 
     for i, example in enumerate(examples):
         try:
-
             texts.append(processor.apply_chat_template(example["messages"], tokenize=False))
             image_inputs, video_inputs, video_kwargs = process_vision_info(example["messages"],
                                                                            return_video_kwargs=True)
-
         except Exception as e:
             raise ValueError(f"Failed to process example {i}: {e}")
 
@@ -237,8 +250,8 @@ if __name__ == "__main__":
     prepared_dataset = [prepare_dataset(example) for example in dataset['train']]
 
     # Initialize wandb if specified
-    if training_args.report_to == "wandb":
-        wandb.init(project="video-llm-training")
+    # if training_args.report_to == "wandb":
+        # wandb.init(project="video-llm-training")
 
     # Initialize trainer
     trainer = SFTTrainer(
@@ -267,4 +280,4 @@ if __name__ == "__main__":
     del model
     del trainer
     torch.cuda.empty_cache()
-    wandb.finish()
+    # wandb.finish()

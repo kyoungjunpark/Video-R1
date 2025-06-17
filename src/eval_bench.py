@@ -24,7 +24,12 @@ args = parser.parse_args()
 MODEL_PATH = args.model_path
 file_name = args.file_name
 
-MODEL_PATH = os.path.abspath(MODEL_PATH)
+# MODEL_PATH = os.path.abspath(MODEL_PATH)
+
+if os.path.exists(os.path.abspath(MODEL_PATH)):
+    MODEL_PATH = os.path.abspath(MODEL_PATH)
+else:
+    MODEL_PATH = MODEL_PATH
 
 llm = LLM(
     model=MODEL_PATH,
@@ -231,7 +236,7 @@ for dataset_name in [args.dataset_path]:
             batch_output_text = [out.outputs[0].text for out in outputs]
 
         except Exception as e:
-            print('error:', data[i]['path'])
+            print('error:', data[i])
             batch_output_text = ['<answer>error</answer>'] * BSZ
 
         for j, (sample, model_output) in enumerate(zip(data[i:i + BSZ], batch_output_text), start=i):
@@ -254,7 +259,7 @@ for dataset_name in [args.dataset_path]:
             elif output_ans.strip() == "B":
                 answers.append(0)
             else:
-                print("error: ", output_ans)
+                print("error: ", model_output)
                 continue
 
             if gt_ans.strip() == "A":
@@ -262,7 +267,7 @@ for dataset_name in [args.dataset_path]:
             elif gt_ans.strip() == "B":
                 gts.append(0)
             else:
-                print("error: ", gt_ans)
+                print("error: ", model_output)
                 raise Exception(gt_ans)
 
             sample['correct'] = True if sample["reward"] == 1.0 else False
