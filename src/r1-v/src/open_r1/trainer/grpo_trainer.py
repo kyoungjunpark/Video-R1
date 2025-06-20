@@ -398,7 +398,7 @@ class Qwen2VLGRPOTrainer(Trainer):
                 input_ids = input_ids[:, :min_len]
                 kwargs["pixel_values"] = kwargs["pixel_values"][:, :min_len]
 
-        logits = model(input_ids, **kwargs).logits.to(torch.bfloat16)
+        logits = model(input_ids, **kwargs).logits
         logits = logits[:, :-1, :]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
         input_ids = input_ids[:, 1:]  # (B, L-1), exclude the first input ID since we don't have logits for it
         # Compute the log probabilities for the input tokens. Use a loop to reduce memory peak.

@@ -2,7 +2,7 @@ cd src/r1-v
 
 export DEBUG_MODE="true" # Enable Debug if you want to see the rollout of model during RL
 export LOG_PATH="./debug_log_2b.txt"
-export WANDB_PROJECT=Ours-GRPOTA-true-newCoT30SFT2f-0615
+export WANDB_PROJECT=Ours-GRPOTA-true-newCoT30SFT2f-06152
 # For resume training:  --resume_from_checkpoint Model_Path \
 # Set temporal to choose between T-GRPO and GRPO, and len_control to enable or disable the length control reward.
 

@@ -35,9 +35,9 @@ VIDEO_MIN_PIXELS = 128 * 28 * 28
 VIDEO_MAX_PIXELS = 128 * 28 * 28
 
 FRAME_FACTOR = 2
-FPS = 4
+FPS = 5
 FPS_MIN_FRAMES = 4
-FPS_MAX_FRAMES = 8
+FPS_MAX_FRAMES = 16
 
 # 49 Frames, 7 fps
 # Set the maximum number of video token inputs.

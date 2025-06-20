@@ -54,7 +54,8 @@ from qwen_vl_utils import process_vision_info
 
 from datasets import Dataset, DatasetDict
 
-# import wandb
+import wandb
+import numpy as np
 
 from typing import List, Dict, Any
 
@@ -193,6 +194,78 @@ def collate_fn(examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
     return inputs
 
 
+class MySFTTrainer(SFTTrainer):
+    def __init__(self, tokenizer=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tokenizer = tokenizer
+
+    def compute_metrics(self, eval_preds):
+        predictions, labels = eval_preds
+
+        # 디코딩
+        pred_texts = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
+        label_texts = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # 수치로 파싱
+        pred_vals = [self.safe_parse_float(p) for p in pred_texts]
+        label_vals = [self.safe_parse_float(l) for l in label_texts]
+
+        # Mean Absolute Error
+        mae = np.mean([abs(p - l) for p, l in zip(pred_vals, label_vals)])
+
+        # Mean Squared Error (optional)
+        mse = np.mean([(p - l) ** 2 for p, l in zip(pred_vals, label_vals)])
+
+        # wandb에 로깅
+        if self.args.report_to == "wandb":
+            wandb.log({
+                "regression_mae": mae,
+                "regression_mse": mse
+            })
+
+        return {"regression_mae": mae, "regression_mse": mse}
+
+    def log(self, logs, iterator=None):  # ✅ 두 개의 인자 받아야 함
+        super().log(logs, iterator)
+
+        # 마지막 배치 예측 가져오기
+        if hasattr(self, 'state') and hasattr(self, 'eval_predictions'):
+            predictions, labels = self.eval_predictions  # <-- trainer 내부 state에 저장되는 preds
+        else:
+            return
+
+        try:
+            pred_texts = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
+            label_texts = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+            pred_vals = [self.safe_parse_float(p) for p in pred_texts]
+            label_vals = [self.safe_parse_float(l) for l in label_texts]
+
+            mae = np.mean([abs(p - l) for p, l in zip(pred_vals, label_vals)])
+            mse = np.mean([(p - l) ** 2 for p, l in zip(pred_vals, label_vals)])
+
+            # wandb 로깅
+            if self.args.report_to == "wandb":
+                wandb.log({
+                    "train/regression_mae": mae,
+                    "train/regression_mse": mse,
+                }, step=self.state.global_step)
+
+        except Exception as e:
+            print(f"[log hook error] {e}")
+
+    def safe_parse_float(self, s):
+        """
+        텍스트에서 수치만 추출: 예시 "<answer> 3.14 </answer>" 또는 "3.14"
+        """
+        try:
+            s_clean = s.strip()
+            s_clean = s_clean.replace("<answer>", "").replace("</answer>", "").strip()
+            return float(s_clean.split()[0])
+        except:
+            print("Error parsing the answer: ", s)
+            return 0.0  # 또는 np.nan 으로 하고 나중에 필터링
+
 if __name__ == "__main__":
     # Parse arguments
     parser = TrlParser((ScriptArguments, SFTConfig, ModelConfig))
@@ -202,6 +275,8 @@ if __name__ == "__main__":
     training_args.gradient_checkpointing_kwargs = dict(use_reentrant=False)
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
+    training_args.dataloader_shuffle = True
+
 
     # Load dataset
     if script_args.dataset_name.endswith('.json') or script_args.dataset_name.endswith('.jsonl'):
@@ -254,6 +329,7 @@ if __name__ == "__main__":
         # wandb.init(project="video-llm-training")
 
     # Initialize trainer
+    """
     trainer = SFTTrainer(
         model=model,
         args=training_args,
@@ -262,6 +338,19 @@ if __name__ == "__main__":
         peft_config=get_peft_config(model_config),
         # tokenizer=processor.tokenizer
     )
+    """
+    # training_args.evaluation_strategy = "epoch"
+
+    trainer = MySFTTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=prepared_dataset,
+        eval_dataset=prepared_dataset[:100],
+        data_collator=collate_fn,
+        peft_config=get_peft_config(model_config),
+        tokenizer=processor.tokenizer,  # ← 필요합니다!
+    )
+    # trainer.evaluate()
 
     # Train model
     trainer.train()

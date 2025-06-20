@@ -145,6 +145,9 @@ def accuracy_reward(completions, solution, **kwargs):
 
     question_type = kwargs['problem_type'][0]
     question_option = kwargs['options'][0]
+    if question_option is None:
+        question_option = []
+
     option_ranges = {}
     for opt in question_option:
         match = re.match(r"([A-H])\. .*?(\d+\.?\d*)-(\d+\.?\d*) seconds", opt)
