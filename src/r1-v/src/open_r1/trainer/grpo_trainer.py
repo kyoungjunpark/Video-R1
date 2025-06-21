@@ -62,7 +62,6 @@ if is_peft_available():
 
 if is_wandb_available():
     import wandb
-    wandb.init(mode='online')
 
     # wandb.init(mode="disabled")
 
