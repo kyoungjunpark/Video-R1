@@ -251,9 +251,8 @@ def accuracy_reward(completions, solution, **kwargs):
                 out_number = normalize_number(output_ans)
                 if gt_number is None or out_number is None:
                     reward = 0.0
-                rel_diff = (abs(out_number - gt_number) + 1e-9) / (abs(gt_number) + 1e-9)
-                rel_diff = min(1.0, max(0.0, rel_diff))
-                reward = 1 - rel_diff
+                abs_diff = abs(out_number - gt_number)
+                reward = max(0.0, 1.0 - abs_diff / 12.0)  # max range difference = 12
             else:
                 reward = 0.0
         except Exception as e:

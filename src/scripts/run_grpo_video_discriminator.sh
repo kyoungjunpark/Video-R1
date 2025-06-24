@@ -15,7 +15,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node="4" \
     --master_port="12365" \
     src/open_r1/grpo.py \
     --output_dir "./log/Qwen2.5-VL-7B-GRPOTA-newCoT70-2f-0616" \
-    --model_name_or_path '/blob/kyoungjun/Video-R1/src/r1-v//log/Qwen2.5-VL-7B-Video-7B-newcot70-2f-sft-0612/' \
+    --model_name_or_path '/blob/kyoungjun/Video-R1/src/r1-v/log/Qwen2.5-VL-7B-Video-7B-newcot70-2f-sft-0612/' \
     --dataset_name "/blob/kyoungjun/Video-R1/src/r1-v/Video-Ours-data/real_gen_r1_grpo_train_w_cot_30.json" \
     --deepspeed local_scripts/zero3.json \
     --max_prompt_length 16384 \
