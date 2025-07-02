@@ -252,7 +252,7 @@ def accuracy_reward(completions, solution, **kwargs):
                 if gt_number is None or out_number is None:
                     reward = 0.0
                 abs_diff = abs(out_number - gt_number)
-                reward = max(0.0, 1.0 - abs_diff / 12.0)  # max range difference = 12
+                reward = max(0.0, 1.0 - abs_diff / 3.0)  # 더 민감하게 설정
             else:
                 reward = 0.0
         except Exception as e:
